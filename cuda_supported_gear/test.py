@@ -9,7 +9,7 @@ import argparse
 
 
 #### Config for KIVI model
-config = LlamaConfig.from_pretrained("meta-llama/Llama-2-7b-hf", use_auth_token='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')
+config = LlamaConfig.from_pretrained("meta-llama/Llama-2-7b-hf", token='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')
 
 config.k_bits = 2# current support 2/4 bit for KV Cache
 config.v_bits = 2 # current support 2/4 bit for KV Cache

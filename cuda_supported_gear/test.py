@@ -4,8 +4,12 @@ from modeling_llama_kivi import LlamaForCausalLM_KIVI
 from transformers import LlamaConfig, AutoTokenizer, LlamaForCausalLM
 from transformers import BitsAndBytesConfig
 from datasets import load_dataset
+from huggingface_hub import HfApi, HfFolder
 import torch
 import argparse
+
+api = HfApi()
+api.set_access_token(HfFolder.save_token('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'))
 
 
 #### Config for KIVI model

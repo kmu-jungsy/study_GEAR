@@ -4,16 +4,12 @@ from modeling_llama_kivi import LlamaForCausalLM_KIVI
 from transformers import LlamaConfig, AutoTokenizer, LlamaForCausalLM
 from transformers import BitsAndBytesConfig
 from datasets import load_dataset
-from huggingface_hub import HfApi, HfFolder
 import torch
 import argparse
 
-api = HfApi()
-api.set_access_token(HfFolder.save_token('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'))
-
 
 #### Config for KIVI model
-config = LlamaConfig.from_pretrained("meta-llama/Llama-2-7b-hf")
+config = LlamaConfig.from_pretrained("meta-llama/Llama-2-7b-hf", use_auth_token='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')
 
 config.k_bits = 2# current support 2/4 bit for KV Cache
 config.v_bits = 2 # current support 2/4 bit for KV Cache
@@ -64,7 +60,7 @@ elif "None" in args.model:
     "meta-llama/Llama-2-7b-hf",
 
     device_map = "cuda:0")
-model = model.half()
+    model = model.half()
 
 
 

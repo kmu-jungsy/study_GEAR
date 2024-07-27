@@ -7,9 +7,10 @@ from datasets import load_dataset
 import torch
 import argparse
 
+hf_token = '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'
 
 #### Config for KIVI model
-config = LlamaConfig.from_pretrained("meta-llama/Llama-2-7b-hf", token='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')
+config = LlamaConfig.from_pretrained("meta-llama/Llama-2-7b-hf", token=hf_token)
 
 config.k_bits = 2# current support 2/4 bit for KV Cache
 config.v_bits = 2 # current support 2/4 bit for KV Cache
@@ -38,13 +39,15 @@ compress_config["loop"] = 3
 # compress_config["stream_list"] = stream_list
 stream_list = [torch.cuda.Stream(),torch.cuda.Stream()]
 
+args.model = "None"
 if "gearl" in args.model:
     model = LlamaForCausalLM_GEARKIVI.from_pretrained(
         "meta-llama/Llama-2-7b-hf",
         config = config,
         # quantization_config = quantization_config,
         compress_config = compress_config,
-        device_map = "cuda:0"
+        device_map = "cuda:0",
+        token=hf_token
     )
 elif "KIVI" in args.model:
     model = LlamaForCausalLM_KIVI.from_pretrained(
@@ -53,14 +56,17 @@ elif "KIVI" in args.model:
         # quantization_config = quantization_config,
         # compress_config = compress_config,
         
-        device_map = "cuda:0"
+        device_map = "cuda:0",
+        token=hf_token
     )
 elif "None" in args.model:
     model = LlamaForCausalLM.from_pretrained(
     "meta-llama/Llama-2-7b-hf",
 
-    device_map = "cuda:0")
-    model = model.half()
+    device_map = "cuda:0",
+    token=hf_token)
+
+model = model.half()
 
 
 
@@ -71,8 +77,8 @@ tokenizer = AutoTokenizer.from_pretrained(
     model_max_length=max_token,
     max_length=max_token,
     use_fast=False, 
-    trust_remote_code=True, 
-    tokenizer_type='llama')
+    trust_remote_code=True,
+    use_auth_token=hf_token)
 tokenizer.pad_token = tokenizer.eos_token
 test = load_dataset("wikitext", "wikitext-2-raw-v1", split="train")
 text_combined = test["text"]

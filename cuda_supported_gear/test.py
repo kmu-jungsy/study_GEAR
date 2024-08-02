@@ -38,7 +38,7 @@ compress_config["rank"] = 4  ## prefill rank
 compress_config["rankv"] = 4  ## prefill rank
 compress_config["loop"] = 2
 
-args.model = "gearl"
+args.model = "KIVI"
 
 if "gearl" in args.model:
     model = LlamaForCausalLM_GEARKIVI.from_pretrained(
@@ -63,6 +63,9 @@ elif "None" in args.model:
     )
 
 # model = model.half() # 이 줄을 제거합니다.
+
+# 모델 정의 후 아래 코드 추가
+model.gradient_checkpointing_enable()
 
 tokenizer = AutoTokenizer.from_pretrained(
     'meta-llama/Llama-2-7b-hf',

@@ -8,7 +8,7 @@ import argparse
 from modeling_llamagear import LlamaForCausalLM_GEARKIVI
 from modeling_llama_kivi import LlamaForCausalLM_KIVI
 
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:128"
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 quantization_config = BitsAndBytesConfig(load_in_8bit=True)
 
@@ -20,23 +20,23 @@ config.group_size = 64
 config.residual_length = 64  # the number of recent fp16 tokens
 
 parser = argparse.ArgumentParser(description="Evaluate AQuA Tasks")
-parser.add_argument("--batch_size", type=int, default=8, help="Batch size.")
+parser.add_argument("--batch_size", type=int, default=4, help="Batch size.")  # 배치 크기 줄임
 parser.add_argument("--model", type=str, default="meta-llama/Llama-2-7b", help="Model name or path.")
 args = parser.parse_args()
 
-max_token = 1000  ### prefill_length
-max_generation_length = 1500  ### geneate 500
+max_token = 512  # 입력 데이터 크기 줄임
+max_generation_length = 1024  # 생성 길이 줄임
 batch_size = args.batch_size
 
-##### Config for 
-compress_config = {}
-compress_config["compress_method"] = "gearlKIVI"  # "gearlKIVI" "gearsKIVI"
-compress_config["group_size"] = 64
-compress_config["residual"] = 128
-compress_config["quantize_bit"] = 2
-compress_config["rank"] = 4  ## prefill rank
-compress_config["rankv"] = 4  ## prefill rank
-compress_config["loop"] = 2
+compress_config = {
+    "compress_method": "gearlKIVI",
+    "group_size": 64,
+    "residual": 64,
+    "quantize_bit": 2,
+    "rank": 2,
+    "rankv": 2,
+    "loop": 3
+}
 
 args.model = "gearl"
 
@@ -61,8 +61,6 @@ elif "None" in args.model:
         quantization_config=quantization_config,
         device_map="cuda:0"
     )
-
-# model = model.half() # 이 줄을 제거합니다.
 
 tokenizer = AutoTokenizer.from_pretrained(
     'meta-llama/Llama-2-7b-hf',

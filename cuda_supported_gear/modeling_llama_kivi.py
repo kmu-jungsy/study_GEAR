@@ -123,7 +123,7 @@ class LlamaAttention_KIVI(nn.Module):
         kv_seq_len = key_states.shape[-2]
         if past_key_value is not None:
             kv_seq_len += past_key_value[-1]
-        cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
+        cos, sin = self.rotary_emb(value_states, position_ids=position_ids)
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
         assert self.num_key_value_groups == 1
         # [bsz, nh, t, hd]
@@ -421,7 +421,7 @@ class LlamaModel_KIVI(LlamaPreTrainedModel):
             raise ValueError("You have to specify either input_ids or inputs_embeds")
 
         past_key_values_length = 0
-        if past_key_values is not None:
+        if past_key_values is not None and len(past_key_values) > 0:
             past_key_values_length = past_key_values[0][-1]
 
         if position_ids is None:
@@ -462,7 +462,7 @@ class LlamaModel_KIVI(LlamaPreTrainedModel):
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
 
-            past_key_value = past_key_values[idx] if past_key_values is not None else None
+            past_key_value = past_key_values[idx] if past_key_values is not None  and len(past_key_values) > 0 else None
 
             if self.gradient_checkpointing and self.training:
                 layer_outputs = self._gradient_checkpointing_func(
@@ -635,7 +635,7 @@ class LlamaForCausalLM_KIVI(LlamaPreTrainedModel):
     def prepare_inputs_for_generation(
         self, input_ids, past_key_values=None, attention_mask=None, inputs_embeds=None, **kwargs
     ):
-        if past_key_values is not None:
+        if past_key_values is not None and len(past_key_values) > 0:
             past_length = past_key_values[0][-1]
             # Some generation methods already pass only the last input ID
             if input_ids.shape[1] > past_length:

@@ -111,6 +111,8 @@ def matmul_withlrap(group_size,a,b,scale,mn,bits,pbase,qbase, type = "key"):
     return result1
 
 class LlamaAttention_GEAR(nn.Module):
+    """Multi-headed attention from 'Attention Is All You Need' paper"""
+
     def __init__(self, layer_idx, config: LlamaConfig, compress_config=None):
         super().__init__()
         self.layer_idx = layer_idx
@@ -199,11 +201,8 @@ class LlamaAttention_GEAR(nn.Module):
         kv_seq_len = key_states.shape[-2]
         if past_key_value is not None:
             kv_seq_len += past_key_value[8]
-        cos, sin = self.rotary_emb(value_states, position_ids)
-        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
-
-        # 크기 확인
-        assert query_states.shape == key_states.shape, f"query_states와 key_states의 크기가 일치하지 않습니다: {query_states.shape}, {key_states.shape}"
+        cos, sin = self.rotary_emb(value_states, position_ids=position_ids)
+        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
         assert self.num_key_value_groups == 1
         # [bsz, nh, t, hd]
         if past_key_value is not None:
@@ -235,6 +234,9 @@ class LlamaAttention_GEAR(nn.Module):
             #     print("value_p",value_states_p[1].shape)
             #     print("value_q",value_states_q[1].shape)
             if key_states_quant_trans is not None:
+                # att_qkquant = cuda_bmm_fA_qB_outer(self.group_size, query_states, key_states_quant_trans, 
+                #                 key_scale_trans, key_mn_trans, self.k_bits)
+
                 att_qkquant = matmul_withlrap(self.compress_config["group_size"],
                                               query_states,
                                               key_states_quant_trans,
@@ -247,6 +249,7 @@ class LlamaAttention_GEAR(nn.Module):
  
                 
             else:
+                #### it seeems that we will not be here
                 att_qkquant = None
 
             if key_states_full is not None:
@@ -306,11 +309,13 @@ class LlamaAttention_GEAR(nn.Module):
                     attn_weights, torch.tensor(torch.finfo(attn_weights.dtype).min)
                 )
 
+            # upcast attention to fp32
             attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
             if value_states_full is not None:
                 value_states_full = torch.cat([value_states_full, value_states], dim=2)
             else:
                 value_states_full = value_states
+            # value_full_length = if value_full_length == None 0 else value_states_full.shape[-2]
             if value_states_full == None:
                 value_full_length = 0
             else:
@@ -318,6 +323,9 @@ class LlamaAttention_GEAR(nn.Module):
             if value_states_quant is None:
                 attn_output = torch.matmul(attn_weights, value_states_full)
             else:
+                # attn_output = cuda_bmm_fA_qB_outer(self.group_size, attn_weights[:, :, :, :-value_full_length], value_states_quant, 
+                #                                 value_scale, value_mn, self.v_bits)
+                # prindsdt("layerid  ",self.layer_idx,"attn_weights",attn_weights[:, :, :, :-value_full_length].shape,"value_states_quant",value_states_quant.shape,"value_P",value_states_p.shape,"value_Q",value_states_q.shape)
                 attn_output = matmul_withlrap(self.compress_config["group_size"],attn_weights[:, :, :, :-value_full_length],value_states_quant,
                                             value_scale,
                                             value_mn, self.compress_config["quantize_bit"],value_states_p,value_states_q,
@@ -325,10 +333,32 @@ class LlamaAttention_GEAR(nn.Module):
                 attn_output += torch.matmul(attn_weights[:, :, :, -value_full_length:], value_states_full)
             
             if value_full_length == self.residual_length:
+                # print("here?")
+                # print(value_full_length)
+                # assert value_full_length == self.residual_length + 1
+                # value_states_quant_new, scale, mn, value_states_p,value_states_q = value_compression(
+                #     value_states_full[:, :, :1, :].contiguous(),
+                #     self.compress_config
+                # )
+
+                
+
+                # value_states_full = value_states_full[:, :, 1:, :].contiguous()
+                # if value_states_quant is not None:
+                #     value_states_quant = torch.cat([value_states_quant, value_states_quant_new], dim=2)
+                #     value_scale = torch.cat([value_scale, scale], dim=2)
+                #     value_mn = torch.cat([value_mn, mn], dim=2)
+                # else:
+                #     value_states_quant = value_states_quant_new
+                #     value_scale = scale
+                #     value_mn = mn
                 value_states_quant_new, scale, mn, value_states_p_new,value_states_q_new = value_compression(
                     value_states_full.contiguous(),
                     self.compress_config
                 )
+                
+
+                
 
                 value_states_full = None
                 if value_states_quant is not None:
@@ -356,6 +386,7 @@ class LlamaAttention_GEAR(nn.Module):
         else:
             attn_weights = torch.matmul(query_states, 
                                         key_states.transpose(2, 3)) / math.sqrt(self.head_dim)
+            # quantize
             if key_states.shape[-2] % self.residual_length != 0:
                 if key_states.shape[-2] < self.residual_length:
                     key_states_quant = None
@@ -367,6 +398,7 @@ class LlamaAttention_GEAR(nn.Module):
                 key_states_quant = key_states
                 key_states_full = None
             if key_states_quant is not None:
+                #### initial quantization
                 key_states_quant_trans, key_scale_trans, key_mn_trans,key_states_p, key_states_q = key_compression(
                     key_states_quant.transpose(2, 3).contiguous(),
                     self.compress_config
@@ -388,6 +420,7 @@ class LlamaAttention_GEAR(nn.Module):
                 value_mn = None
                 value_states_p, value_states_q = None, None
             else:
+                #### initial quantization
                 residual = value_states.shape[-2] % self.residual_length
                 quant_legnth = value_states.shape[-2] - residual
                 value_states_quant = value_states[:, :, :quant_legnth, :].contiguous()
@@ -415,6 +448,7 @@ class LlamaAttention_GEAR(nn.Module):
                     attn_weights, torch.tensor(torch.finfo(attn_weights.dtype).min)
                 )
 
+            # upcast attention to fp32
             attn_weights = nn.functional.softmax(
                 attn_weights, dim=-1, dtype=torch.float32
             ).to(query_states.dtype)
@@ -448,8 +482,6 @@ class LlamaAttention_GEAR(nn.Module):
 
         attn_weights = None
         return attn_output, attn_weights, past_key_value
-
-
     
 
 class LlamaDecoderLayer_GEAR(nn.Module):
@@ -681,10 +713,11 @@ class LlamaForCausalLM_GEARKIVI(LlamaPreTrainedModel):
 
     def __init__(self, config, compress_config=None):
         super().__init__(config)
-        self.model = LlamaModel_GEAR(config, compress_config)
+        self.model = LlamaModel_GEAR(config,compress_config)
         self.vocab_size = config.vocab_size
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
         self.compress_config = compress_config
+        # Initialize weights and apply final processing
         self.post_init()
 
     def get_input_embeddings(self):
@@ -705,6 +738,8 @@ class LlamaForCausalLM_GEARKIVI(LlamaPreTrainedModel):
     def get_decoder(self):
         return self.model
 
+    @add_start_docstrings_to_model_forward(LLAMA_INPUTS_DOCSTRING)
+    @replace_return_docstrings(output_type=CausalLMOutputWithPast, config_class=_CONFIG_FOR_DOC)
     def forward(
         self,
         input_ids: torch.LongTensor = None,
@@ -718,13 +753,38 @@ class LlamaForCausalLM_GEARKIVI(LlamaPreTrainedModel):
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
     ) -> Union[Tuple, CausalLMOutputWithPast]:
+        r"""
+        Args:
+            labels (`torch.LongTensor` of shape `(batch_size, sequence_length)`, *optional*):
+                Labels for computing the masked language modeling loss. Indices should either be in `[0, ...,
+                config.vocab_size]` or -100 (see `input_ids` docstring). Tokens with indices set to `-100` are ignored
+                (masked), the loss is only computed for the tokens with labels in `[0, ..., config.vocab_size]`.
 
+        Returns:
+
+        Example:
+
+        ```python
+        >>> from transformers import AutoTokenizer, LlamaForCausalLM
+
+        >>> model = LlamaForCausalLM.from_pretrained(PATH_TO_CONVERTED_WEIGHTS)
+        >>> tokenizer = AutoTokenizer.from_pretrained(PATH_TO_CONVERTED_TOKENIZER)
+
+        >>> prompt = "Hey, are you conscious? Can you talk to me?"
+        >>> inputs = tokenizer(prompt, return_tensors="pt")
+
+        >>> # Generate
+        >>> generate_ids = model.generate(inputs.input_ids, max_length=30)
+        >>> tokenizer.batch_decode(generate_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
+        "Hey, are you conscious? Can you talk to me?\nI'm not conscious, but I can talk to you."
+        ```"""
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
+        # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
         outputs = self.model(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -740,7 +800,7 @@ class LlamaForCausalLM_GEARKIVI(LlamaPreTrainedModel):
         hidden_states = outputs[0]
         if self.config.pretraining_tp > 1:
             lm_head_slices = self.lm_head.weight.split(self.vocab_size // self.config.pretraining_tp, dim=0)
-            logits = [nn.functional.linear(hidden_states, lm_head_slices[i]) for i in range(self.config.pretraining_tp)]
+            logits = [F.linear(hidden_states, lm_head_slices[i]) for i in range(self.config.pretraining_tp)]
             logits = torch.cat(logits, dim=-1)
         else:
             logits = self.lm_head(hidden_states)
@@ -748,11 +808,14 @@ class LlamaForCausalLM_GEARKIVI(LlamaPreTrainedModel):
 
         loss = None
         if labels is not None:
+            # Shift so that tokens < n predict n
             shift_logits = logits[..., :-1, :].contiguous()
             shift_labels = labels[..., 1:].contiguous()
+            # Flatten the tokens
             loss_fct = CrossEntropyLoss()
             shift_logits = shift_logits.view(-1, self.config.vocab_size)
             shift_labels = shift_labels.view(-1)
+            # Enable model parallelism
             shift_labels = shift_labels.to(shift_logits.device)
             loss = loss_fct(shift_logits, shift_labels)
 
@@ -767,26 +830,31 @@ class LlamaForCausalLM_GEARKIVI(LlamaPreTrainedModel):
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
         )
-    
+
     def prepare_inputs_for_generation(
         self, input_ids, past_key_values=None, attention_mask=None, inputs_embeds=None, **kwargs
     ):
         if past_key_values is not None and len(past_key_values) > 0:
             past_length = past_key_values[0][8]
+            # Some generation methods already pass only the last input ID
             if input_ids.shape[1] > past_length:
                 remove_prefix_length = past_length
             else:
+                # Default to old behavior: keep only final ID
                 remove_prefix_length = input_ids.shape[1] - 1
+
             input_ids = input_ids[:, remove_prefix_length:]
 
         position_ids = kwargs.get("position_ids", None)
-        if attention_mask is not None and position_ids is None:
+        if attention_mask is not None and position_ids is None and len(past_key_values) > 0:
+            # create position_ids on the fly for batch generation
             position_ids = attention_mask.long().cumsum(-1) - 1
             position_ids.masked_fill_(attention_mask == 0, 1)
             if past_key_values:
                 position_ids = position_ids[:, -input_ids.shape[1] :]
 
-        if inputs_embeds is not None and (past_key_values is None or len(past_key_values) == 0):
+        # if `inputs_embeds` are passed, we only want to use them in the 1st generation step
+        if inputs_embeds is not None and past_key_values is None:
             model_inputs = {"inputs_embeds": inputs_embeds}
         else:
             model_inputs = {"input_ids": input_ids}

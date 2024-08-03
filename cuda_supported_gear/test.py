@@ -1,3 +1,4 @@
+#
 from modeling_llamagear import LlamaForCausalLM_GEARKIVI
 from modeling_llama_kivi import LlamaForCausalLM_KIVI
 from transformers import LlamaConfig, AutoTokenizer, LlamaForCausalLM
@@ -37,7 +38,7 @@ compress_config["loop"] = 3
 # compress_config["stream_list"] = stream_list
 stream_list = [torch.cuda.Stream(),torch.cuda.Stream()]
 
-args.model = "gearl"
+args.model = "None"
 
 if "gearl" in args.model:
     model = LlamaForCausalLM_GEARKIVI.from_pretrained(
@@ -52,19 +53,21 @@ elif "KIVI" in args.model:
     model = LlamaForCausalLM_KIVI.from_pretrained(
         "meta-llama/Llama-2-7b-hf",
         config = config,
-        torch_dtype=torch.float16,
         # quantization_config = quantization_config,
         # compress_config = compress_config,
-        
+        torch_dtype=torch.float16,
         device_map = "cuda:0"
     )
 elif "None" in args.model:
     model = LlamaForCausalLM.from_pretrained(
     "meta-llama/Llama-2-7b-hf",
     torch_dtype=torch.float16,
-
     device_map = "cuda:0")
 model = model.half()
+
+
+
+
 
 tokenizer = AutoTokenizer.from_pretrained(
     'meta-llama/Llama-2-7b-hf', 
@@ -79,6 +82,7 @@ text_combined = test["text"]
 
 sentence_group = []
 for i in range(batch_size):
+    # sentence_group.append(str(text_combined[i*max_token:(i+1)*max_token]))
     sentence_group.append(str(text_combined[0:max_token]))
 inputs = tokenizer(
     sentence_group,
@@ -92,16 +96,13 @@ print(inputs.input_ids.shape)
 import time
 
 start = time.time()
-# 디버깅용 출력 추가
-print("Generating with inputs:", inputs)
-try:
-    result = model.generate(**inputs, max_length=max_generation_length, use_cache=True)
-except Exception as e:
-    print("Error during generation:", e)
-    raise
+result = model.generate(**inputs, max_length=max_generation_length, use_cache=True)
 torch.cuda.synchronize()
 end = time.time()
 peak_memory = torch.cuda.max_memory_allocated(device="cuda") / (1024**2)  # 转换为MB单位
 
 print(f"Peak memory usage on GPU: {peak_memory} MB")
-print("time", end - start)
+print("time",end - start)
+# result = tokenizer.batch_decode(result, skip_special_tokens=True)
+# print(result)
+# model = model.cuda()

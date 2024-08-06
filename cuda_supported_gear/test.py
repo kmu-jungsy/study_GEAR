@@ -38,7 +38,7 @@ compress_config["loop"] = 3
 # compress_config["stream_list"] = stream_list
 stream_list = [torch.cuda.Stream(),torch.cuda.Stream()]
 
-args.model = "None"
+args.model = "gearl"
 
 if "gearl" in args.model:
     model = LlamaForCausalLM_GEARKIVI.from_pretrained(

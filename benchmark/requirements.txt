@@ -1,0 +1,19 @@
+torch==2.3.1
+triton
+transformers
+datasets
+accelerate
+numpy
+scipy
+
+# 토크나이저를 불러오기 위한 라이브러리들
+tokenizers
+sentencepiece
+protobuf
+
+# cudf 라이브러리 설치 (conda) 종속성
+pyarrow
+
+# flash-attn # 반드시 torch 를 먼저 설치하고 설치해야 함.
+
+# lm-evaluation-harness 라이브러리 설치 (pip) 종속성
